@@ -1,6 +1,6 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(rustdoc::broken_intra_doc_links)]
-#![doc = include_str!("../README.md")]
+#![doc = include_str!("../../README.md")]
 #[cfg(all(all(feature = "tokio", feature = "async-std"), not(doc)))]
 compile_error!("You can't enable both async-std & tokio features at once");
 
@@ -24,6 +24,7 @@ mod keyring;
 pub use error::{Error, Result};
 pub use keyring::{Item, Keyring};
 pub use migration::migrate;
+pub use zbus;
 
 /// Checks whether the application is sandboxed or not.
 pub async fn is_sandboxed() -> bool {

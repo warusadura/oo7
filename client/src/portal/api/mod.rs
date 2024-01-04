@@ -6,14 +6,18 @@
 // - Make more things async
 
 #[cfg(feature = "async-std")]
-use std::os::unix::fs::OpenOptionsExt;
+use std::io;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
 
 #[cfg(feature = "async-std")]
-use async_std::{fs, io, prelude::*};
+use async_fs as fs;
+#[cfg(feature = "async-std")]
+use async_fs::unix::OpenOptionsExt;
+#[cfg(feature = "async-std")]
+use futures_lite::AsyncWriteExt;
 use once_cell::sync::Lazy;
 use rand::Rng;
 use serde::{Deserialize, Serialize};

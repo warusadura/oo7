@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use zbus::zvariant::Type;
+use zbus::zvariant::{Type, Value};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::{crypto, Key};
@@ -14,11 +14,36 @@ impl AttributeValue {
     }
 }
 
-impl<S: ToString> From<S> for AttributeValue {
-    fn from(value: S) -> Self {
-        Self(value.to_string())
-    }
+impl Into<Value<'_>> for AttributeValue {
+	fn into(self) -> Value<'static> {
+		Value::Str(self.0.clone().into())
+	}
 }
+
+impl TryFrom<Value<'_>> for AttributeValue {
+	type Error = zbus::zvariant::Error;
+	fn try_from(v: Value<'_>) -> Result<AttributeValue, Self::Error> {
+		Ok(AttributeValue(v.try_into()?))
+	}
+}
+
+impl From<&str> for AttributeValue {
+	fn from(value: &str) -> Self {
+		Self(value.to_string())
+	}
+}
+
+impl From<String> for AttributeValue {
+	fn from(value: String) -> Self {
+		Self(value)
+	}
+}
+
+//impl<S: ToString> From<S> for AttributeValue {
+//    fn from(value: S) -> Self {
+//        Self(value.to_string())
+//    }
+//}
 
 impl AsRef<str> for AttributeValue {
     fn as_ref(&self) -> &str {

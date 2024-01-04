@@ -1,7 +1,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use serde::{Deserialize, Serialize};
-use zbus::zvariant::{self, Type};
+use zbus::zvariant::{self, Type, Value, Structure};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use super::{
@@ -24,10 +24,16 @@ pub struct Item {
     secret: Vec<u8>,
 }
 
+impl Into<Value<'_>> for Item {
+	fn into(self) -> Value<'static> {
+		Value::Structure(Structure::from((self.attributes.clone(), self.label.clone(), self.created, self.modified, self.secret.clone())))
+	}
+}
+
 impl Item {
     pub(crate) fn new(
         label: impl ToString,
-        attributes: HashMap<impl ToString, impl ToString>,
+        attributes: HashMap<impl ToString, impl Into<AttributeValue>>,
         secret: impl AsRef<[u8]>,
     ) -> Self {
         let now = std::time::SystemTime::UNIX_EPOCH

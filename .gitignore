@@ -1,3 +1,4 @@
 /target
+/secret-server/target
 Cargo.lock
 keyring-util/target

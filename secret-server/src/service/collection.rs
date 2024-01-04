@@ -3,27 +3,30 @@
 use std::collections::HashMap;
 
 use oo7::portal::{Item, Keyring, Secret};
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use zbus::{dbus_interface, zvariant, Error, ObjectServer, SignalContext};
-use zvariant::{ObjectPath, OwnedObjectPath, Signature, Type};
+use zvariant::{OwnedObjectPath, Type};
 
 use crate::KEYRING;
 
-#[derive(Default, Debug, Deserialize)]
+#[derive(Default, Debug, Deserialize, Serialize, Type)]
 pub struct Collection {
     items: Vec<Item>,
-    label: String, // lable == alias ?
+    label: String,
+    alias: String,
     locked: bool,
     created: u64,
     modified: u64,
-    path: OwnedObjectPath,
 }
 
 #[dbus_interface(name = "org.freedesktop.Secret.Collection")]
 impl Collection {
-    pub async fn delete(&self, #[zbus(object_server)] object_server: &ObjectServer) -> ObjectPath {
-        object_server.remove::<Collection, _>(&self.path).await; // E0283
-        ObjectPath::try_from("/").unwrap()
+    pub async fn delete(
+        &self,
+        prompt: OwnedObjectPath,
+        #[zbus(object_server)] object_server: &ObjectServer,
+    ) {
+        // object_server.remove(prompt).await; // E0282
     }
 
     pub async fn search_items(&self, attributes: HashMap<&str, &str>) -> Vec<Item> {
@@ -45,10 +48,11 @@ impl Collection {
             .await;
     }
 
+    /*
     #[dbus_interface(property, name = "Items")]
     async fn items(&self) -> &Vec<Item> {
         &self.items
-    }
+    }*/
 
     #[dbus_interface(property, name = "Label")]
     pub async fn label(&self) -> &String {
@@ -70,6 +74,10 @@ impl Collection {
         self.modified
     }
 
+    pub async fn alias(&self) -> &String {
+        &self.alias
+    }
+
     #[dbus_interface(signal)]
     pub async fn item_created(ctxt: &SignalContext<'_>) -> Result<(), Error>;
 
@@ -80,41 +88,29 @@ impl Collection {
     pub async fn item_changed(ctxt: &SignalContext<'_>) -> Result<(), Error>;
 }
 
-impl Serialize for Collection {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        OwnedObjectPath::serialize(&self.path, serializer)
-    }
-}
-
-impl Type for Collection {
-    fn signature() -> Signature<'static> {
-        ObjectPath::signature()
-    }
-}
-
 impl Collection {
     pub async fn new(label: String) -> Self {
         Collection {
             items: Vec::new(),
-            label: label.clone(),
+            label: label,
+            alias: String::from("new"),
             locked: false,
-            created: 23123, // TODO: add real date here
+            created: 23123, // TODO add real date
             modified: 23123,
-            path: OwnedObjectPath::try_from(format!(
-                "/org/freedesktop/secrets/collection/{}",
-                label
-            ))
-            .unwrap(),
         }
     }
 }
 
+/*
+async fn lookup_existing_keyrings() -> Vec<Keyring> {
+    check .local/share/keyrings/ dir
+    load keyrings with portal::Keyring::load
+    insert discovered keyring to collections vec
+}
+*/
+
 pub async fn init_collection_service() -> Collection {
-    // wip: eay way to initialize Collection
-    let mut collection_service: Collection = Collection::default();
+    let mut collection_service: Collection = Collection::default(); // wip
 
     collection_service
 }

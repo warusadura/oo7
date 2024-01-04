@@ -22,7 +22,7 @@ pub struct Collection {
 #[dbus_interface(name = "org.freedesktop.Secret.Collection")]
 impl Collection {
     pub async fn delete(&self, #[zbus(object_server)] object_server: &ObjectServer) -> ObjectPath {
-        //object_server.remove(&self.path).await; // E0283
+        object_server.remove::<Collection, _>(&self.path).await; // E0283
         ObjectPath::try_from("/").unwrap()
     }
 
@@ -45,11 +45,10 @@ impl Collection {
             .await;
     }
 
-   /* 
     #[dbus_interface(property, name = "Items")]
     async fn items(&self) -> &Vec<Item> {
         &self.items
-    }*/
+    }
 
     #[dbus_interface(property, name = "Label")]
     pub async fn label(&self) -> &String {

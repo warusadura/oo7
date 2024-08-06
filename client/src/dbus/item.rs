@@ -134,14 +134,18 @@ impl<'a> Item<'a> {
 
     /// Retrieve the currently stored secret.
     pub async fn secret(&self) -> Result<Zeroizing<Vec<u8>>, Error> {
+        println!("inside secret");
         if !self.is_available().await {
+            println!("secret is_available");
             Err(Error::Deleted)
         } else {
+            println!("else clause");
             let secret = self.inner.secret(&self.session).await?;
 
             let value = match self.algorithm {
                 Algorithm::Plain => Zeroizing::new(secret.value.to_owned()),
                 Algorithm::Encrypted => {
+                    println!("inside encrypted algorithm");
                     let iv = &secret.parameters;
                     // Safe unwrap as it is encrypted
                     let aes_key = self.aes_key.as_ref().unwrap();

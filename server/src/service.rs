@@ -36,6 +36,8 @@ pub struct Service {
     session_index: Arc<RwLock<u32>>,
     prompts: Arc<Mutex<Vec<Prompt>>>,
     prompt_index: Arc<RwLock<u32>>,
+    // SecretExchange aes_key
+    secret_exchange_key: Arc<RwLock<String>>,
 }
 
 #[zbus::interface(name = "org.freedesktop.Secret.Service")]
@@ -137,8 +139,17 @@ impl Service {
     pub async fn unlock(
         &self,
         objects: Vec<OwnedObjectPath>,
+        #[zbus(object_server)] object_server: &zbus::ObjectServer,
     ) -> Result<(Vec<OwnedObjectPath>, OwnedObjectPath), ServiceError> {
-        let (unlocked, _not_unlocked) = self.set_locked(false, &objects, false).await?;
+        let (unlocked, not_unlocked) = self.set_locked(false, &objects, false).await?;
+        if !not_unlocked.is_empty() {
+            let prompt = Prompt::new(self.clone(), not_unlocked, PromptRole::Unlock).await;
+            self.prompts.lock().await.push(prompt.clone());
+            let path = prompt.path().clone();
+
+            object_server.at(&path, prompt).await?;
+            return Ok((unlocked, path));
+        }
 
         Ok((unlocked, OwnedObjectPath::default()))
     }
@@ -291,6 +302,7 @@ impl Service {
             session_index: Default::default(),
             prompts: Default::default(),
             prompt_index: Default::default(),
+            secret_exchange_key: Default::default(),
         };
 
         object_server
@@ -451,5 +463,13 @@ impl Service {
         // prompts should always contain one item during a prompt related operation and
         // it should be cleaned up afterwards.
         self.prompts.lock().await.pop();
+    }
+
+    pub async fn set_secret_exchange_key(&self, aes_key: String) {
+        *self.secret_exchange_key.write().await = aes_key;
+    }
+
+    pub async fn secret_exchange_key(&self) -> String {
+        self.secret_exchange_key.read().await.clone()
     }
 }

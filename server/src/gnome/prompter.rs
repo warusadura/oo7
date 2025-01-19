@@ -55,6 +55,24 @@ impl Properties {
             cancel_label: Some("Cancel".to_string()),
         }
     }
+
+    fn for_unlock() -> Self {
+        Self {
+            title: Some("Unlock Keyring".to_string()),
+            choice_label: None,
+            description: Some(
+                "An application wants access to the keyring 'login', but it is locked".to_string(),
+            ),
+            message: Some("Authentication required".to_string()),
+            caller_window: None,
+            warning: None,
+            password_new: Some(false),
+            password_strength: Some(0),
+            choice_chosen: Some(false),
+            continue_label: Some("Unlock".to_string()),
+            cancel_label: Some("Cancel".to_string()),
+        }
+    }
 }
 
 #[derive(Debug, Type)]
@@ -219,7 +237,105 @@ impl PrompterCallback {
                     }
                 }
             }
-            PromptRole::Unlock => todo!(),
+            PromptRole::Unlock => {
+                match reply {
+                    Reply::Empty => {
+                        // First PromptReady call
+                        let secret_exchange = SecretExchange::new().map_err(|err| {
+                            ServiceError::ZBus(zbus::Error::FDO(Box::new(
+                                zbus::fdo::Error::Failed(format!(
+                                    "Failed to generate SecretExchange {err}."
+                                )),
+                            )))
+                        })?;
+                        let daemon_exchange = secret_exchange.begin();
+                        let aes_key =
+                            secret_exchange
+                                .create_shared_secret(exchange)
+                                .map_err(|err| {
+                                    ServiceError::ZBus(zbus::Error::FDO(Box::new(
+                                        zbus::fdo::Error::Failed(format!(
+                                            "Failed to generate AES key for SecretExchange {err}."
+                                        )),
+                                    )))
+                                })?;
+                        self.service.set_secret_exchange_key(aes_key).await;
+
+                        let properties = Properties::for_unlock();
+                        let path = self.path.clone();
+
+                        tokio::spawn(PrompterCallback::perform_prompt(
+                            connection.clone(),
+                            path,
+                            PromptType::Confirm,
+                            properties,
+                            daemon_exchange,
+                        ));
+                    }
+                    Reply::No => {
+                        // Second PromptReady call and the prompt is dismissed
+                        tracing::debug!("Prompt is being dismissed.");
+
+                        tokio::spawn(PrompterCallback::stop_prompting(
+                            connection.clone(),
+                            self.path.clone(),
+                        ));
+
+                        let signal_emitter = self.service.signal_emitter(prompt.path().clone())?;
+                        let result = Value::new::<Vec<OwnedObjectPath>>(vec![])
+                            .try_to_owned()
+                            .unwrap();
+
+                        tokio::spawn(PrompterCallback::prompt_completed(
+                            signal_emitter,
+                            true,
+                            result,
+                        ));
+                    }
+                    Reply::Yes => {
+                        // Second PromptReady call with the final exchange.
+                        // Verify secret
+                        if let Some(secret) = SecretExchange::retrieve_secret(
+                            exchange,
+                            &self.service.secret_exchange_key().await,
+                        ) {
+                            match oo7::file::Keyring::open("login", secret).await {
+                                Ok(_) => {
+                                    tracing::debug!("Login keyring secret matches.");
+                                }
+                                Err(oo7::file::Error::IncorrectSecret) => {
+                                    tracing::error!("Login keyring incorrect secret.");
+                                    // TODO: offer the prompt again to re-enter
+                                    // the password.
+                                    // TODO: limit number attempts.
+                                }
+                                Err(_) => todo!(),
+                            }
+                        }
+
+                        let service = self.service.clone();
+                        let objects = prompt.objects().clone();
+                        let result = Value::new(&objects).try_to_owned().unwrap();
+
+                        tokio::spawn(async move {
+                            let _ = service.set_locked(true, &objects, false).await;
+                        });
+
+                        tokio::spawn(PrompterCallback::stop_prompting(
+                            connection.clone(),
+                            self.path.clone(),
+                        ));
+
+                        let signal_emitter = self.service.signal_emitter(prompt.path().clone())?;
+
+                        tokio::spawn(PrompterCallback::prompt_completed(
+                            signal_emitter,
+                            false,
+                            result,
+                        ));
+                    }
+                }
+            }
             PromptRole::CreateCollection => todo!(),
         };
 

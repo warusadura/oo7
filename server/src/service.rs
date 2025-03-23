@@ -12,6 +12,7 @@ use oo7::{
     Key, Secret,
 };
 use tokio::sync::{Mutex, RwLock};
+use tokio_stream::StreamExt;
 use zbus::{
     object_server::SignalEmitter,
     proxy::Defaults,
@@ -29,6 +30,8 @@ pub struct Service {
     // sessions mapped to their corresponding object path on the bus
     sessions: Arc<Mutex<HashMap<OwnedObjectPath, Session>>>,
     session_index: Arc<RwLock<u32>>,
+    // Clients connected to the service
+    clients: Arc<Mutex<HashMap<String, String>>>,
 }
 
 #[zbus::interface(name = "org.freedesktop.Secret.Service")]
@@ -273,6 +276,7 @@ impl Service {
             connection: connection.clone(),
             sessions: Default::default(),
             session_index: Default::default(),
+            clients: Default::default(),
         };
 
         object_server
@@ -310,6 +314,8 @@ impl Service {
         object_server
             .at(collection.path().clone(), collection)
             .await?;
+
+        service.watch_clients().await?;
 
         Ok(())
     }
@@ -409,5 +415,51 @@ impl Service {
         *self.session_index.write().await = n_sessions;
 
         n_sessions
+    }
+
+    pub async fn watch_clients(&self) -> Result<(), Error> {
+        // wip: The idea is store client information when a client calls a method.
+        // Watch for NameOwnerChanged signal from the same client.
+        // Clean up session and resources based on that.
+        let connect_rule = zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::MethodCall)
+            .path_namespace("/org/freedesktop/secrets")?
+            .build();
+        let connect_stream =
+            zbus::MessageStream::for_match_rule(connect_rule, &self.connection, None).await?;
+
+        let disconnect_rule = zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .sender("org.freedesktop.DBus")?
+            .member("NameOwnerChanged")?
+            .build();
+        let disconnect_stream =
+            zbus::MessageStream::for_match_rule(disconnect_rule, &self.connection, None).await?;
+
+        let mut stream = disconnect_stream.merge(connect_stream);
+
+        while let Some(message) = stream.try_next().await? {
+            if let Some(sender) = message.header().sender() {
+                let sender = sender.as_str().to_owned();
+                tracing::info!("Client connected: {}", sender);
+                // may be map sender with a session
+                self.clients.lock().await.insert(sender.clone(), sender);
+            } else if message.header().member()
+                == Some(&zbus::names::MemberName::from_static_str_unchecked(
+                    "NameOwnerChanged",
+                ))
+            {
+                let Ok((_, old_owner, _)) =
+                    message.body().deserialize::<(String, String, String)>()
+                else {
+                    continue;
+                };
+                tracing::info!("Client disconnected: {}", old_owner);
+                self.clients.lock().await.remove(&old_owner);
+                // call session.close()
+            }
+        }
+
+        Ok(())
     }
 }
